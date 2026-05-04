@@ -69,6 +69,8 @@ public class WebSecurityConfig   {
               .requestMatchers("/", "/api/health").permitAll()
               .requestMatchers("/api/auth/**").permitAll()
               .requestMatchers(HttpMethod.GET, "/api/juegos", "/api/juegos/**").permitAll()
+              .requestMatchers(HttpMethod.GET, "/api/reactions", "/api/reactions/**").permitAll()
+              .requestMatchers(HttpMethod.GET, "/api/notes/reactions/**").permitAll()
               .requestMatchers(HttpMethod.POST, "/api/juegos/**").authenticated()
               .requestMatchers(HttpMethod.PUT, "/api/juegos/**").authenticated()
               .requestMatchers(HttpMethod.DELETE, "/api/juegos/**").authenticated()

@@ -1,8 +1,11 @@
 package com.proyectoflutter.backend_api.config;
 
 import com.proyectoflutter.backend_api.models.ERole;
+import com.proyectoflutter.backend_api.models.EReaction;
+import com.proyectoflutter.backend_api.models.Reaction;
 import com.proyectoflutter.backend_api.models.Role;
 import com.proyectoflutter.backend_api.models.User;
+import com.proyectoflutter.backend_api.repository.ReactionRepository;
 import com.proyectoflutter.backend_api.repository.RoleRepository;
 import com.proyectoflutter.backend_api.repository.UserRepository;
 import org.slf4j.Logger;
@@ -23,6 +26,7 @@ public class DataInitializer implements ApplicationRunner {
 
     private final RoleRepository roleRepository;
     private final UserRepository userRepository;
+    private final ReactionRepository reactionRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Value("${gametracker.app.admin.enabled:true}")
@@ -40,10 +44,12 @@ public class DataInitializer implements ApplicationRunner {
     public DataInitializer(
             RoleRepository roleRepository,
             UserRepository userRepository,
+            ReactionRepository reactionRepository,
             PasswordEncoder passwordEncoder
     ) {
         this.roleRepository = roleRepository;
         this.userRepository = userRepository;
+        this.reactionRepository = reactionRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -53,6 +59,7 @@ public class DataInitializer implements ApplicationRunner {
         ensureRole(ERole.ROLE_USER);
         ensureRole(ERole.ROLE_MODERATOR);
         Role adminRole = ensureRole(ERole.ROLE_ADMIN);
+        ensureReactions();
 
         if (!adminEnabled) {
             logger.info("Admin bootstrap disabled via gametracker.app.admin.enabled=false");
@@ -83,5 +90,12 @@ public class DataInitializer implements ApplicationRunner {
     private Role ensureRole(ERole roleName) {
         return roleRepository.findByName(roleName)
                 .orElseGet(() -> roleRepository.save(new Role(roleName)));
+    }
+
+    private void ensureReactions() {
+        for (EReaction reactionName : EReaction.values()) {
+            reactionRepository.findByDescription(reactionName)
+                    .orElseGet(() -> reactionRepository.save(new Reaction(reactionName)));
+        }
     }
 }

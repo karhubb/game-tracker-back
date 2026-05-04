@@ -3,6 +3,7 @@ package com.proyectoflutter.backend_api.controllers;
 import com.proyectoflutter.backend_api.models.Game;
 import com.proyectoflutter.backend_api.models.GameNote;
 import com.proyectoflutter.backend_api.repository.GameRepository;
+import com.proyectoflutter.backend_api.services.NoteReactionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -20,6 +21,9 @@ public class GameController {
 
     @Autowired
     private GameRepository gameRepository;
+
+    @Autowired
+    private NoteReactionService noteReactionService;
 
     private Game getGameOrThrow(Long id) {
         return gameRepository.findById(id)
@@ -182,6 +186,7 @@ public class GameController {
 
         requireNoteDeletePermission(notes.get(noteIndex));
 
+        noteReactionService.handleNoteDeleted(id, noteIndex);
         notes.remove(noteIndex);
         game.setNotes(notes);
 
@@ -193,6 +198,7 @@ public class GameController {
     @Transactional
     public void deleteGame(@PathVariable Long id) {
         requireAdmin();
+        noteReactionService.deleteByGame(id);
         gameRepository.deleteById(id);
     }
 }
