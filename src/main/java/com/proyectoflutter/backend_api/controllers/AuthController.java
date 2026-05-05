@@ -4,7 +4,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.net.URI;
 
 import jakarta.validation.Valid;
 
@@ -53,13 +52,6 @@ public class AuthController {
   @GetMapping("/login")
   public ResponseEntity<?> loginEntryPoint() {
     return ResponseEntity.ok(new MessageResponse("Use POST /api/auth/login with username and password to authenticate."));
-  }
-
-  @GetMapping("/signin")
-  public ResponseEntity<Void> legacySigninRedirect() {
-    return ResponseEntity.status(HttpStatus.FOUND)
-        .location(URI.create("/api/auth/login"))
-        .build();
   }
 
   @PostMapping({"/signin", "/login"})

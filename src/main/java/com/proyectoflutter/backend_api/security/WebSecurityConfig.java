@@ -58,10 +58,12 @@ public class WebSecurityConfig   {
     return new BCryptPasswordEncoder();
   }
   
-  @Bean
-  public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-    http.cors(cors -> {})
-        .csrf(csrf -> csrf.disable())
+@Bean
+public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+  // Cambia .cors(cors -> {}) por .cors(withDefaults())
+  // Esto obliga a Spring a usar tu Bean corsConfigurationSource()
+  http.cors(org.springframework.security.config.Customizer.withDefaults()) 
+      .csrf(csrf -> csrf.disable())
         .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(auth ->
