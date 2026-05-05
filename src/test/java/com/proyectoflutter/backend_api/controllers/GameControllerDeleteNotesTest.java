@@ -38,6 +38,8 @@ class GameControllerDeleteNotesTest {
     private com.proyectoflutter.backend_api.security.services.CurrentUserService currentUserService;
     @MockitoBean
     private com.proyectoflutter.backend_api.services.NoteAuthorizationService noteAuthorizationService;
+    @MockitoBean
+    private com.proyectoflutter.backend_api.services.GameNoteService gameNoteService;
 
     @Test
     void deleteLeafNoteRemovesOnlyThatNote() throws Exception {

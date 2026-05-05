@@ -4,6 +4,7 @@ import com.proyectoflutter.backend_api.models.Game;
 import com.proyectoflutter.backend_api.models.GameNote;
 import com.proyectoflutter.backend_api.repository.GameRepository;
 import com.proyectoflutter.backend_api.security.services.CurrentUserService;
+import com.proyectoflutter.backend_api.services.GameNoteService;
 import com.proyectoflutter.backend_api.services.NoteAuthorizationService;
 import com.proyectoflutter.backend_api.services.NoteReactionService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,6 +34,9 @@ public class GameController {
 
     @Autowired
     private NoteAuthorizationService noteAuthorizationService;
+
+    @Autowired
+    private GameNoteService gameNoteService;
 
     private Game getGameOrThrow(Long id) {
         return gameRepository.findById(id)
@@ -192,6 +196,7 @@ public class GameController {
         validateNoteIndex(notes, noteIndex);
 
         GameNote current = notes.get(noteIndex);
+        gameNoteService.requireNotDeleted(current);
         requireNoteEditPermission(current);
         if (noteDetails.getContent() == null || noteDetails.getContent().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Note content cannot be empty");
@@ -218,6 +223,7 @@ public class GameController {
         validateNoteIndex(notes, noteIndex);
 
         GameNote target = notes.get(noteIndex);
+        gameNoteService.requireNotDeleted(target);
         requireNoteDeletePermission(target);
 
         if (target.getChildren().isEmpty()) {
@@ -232,7 +238,7 @@ public class GameController {
             // Recalcular parentIndex tras el borrado físico (los índices se desplazaron)
             reindexParentIndexes(notes);
         } else {
-            target.setContent("El contenido de este comentario se ha eliminado.");
+            target.setContent(GameNoteService.DELETED_PLACEHOLDER);
             target.setDeleted(true);
         }
 

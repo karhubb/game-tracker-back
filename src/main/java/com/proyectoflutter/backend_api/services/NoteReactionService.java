@@ -1,6 +1,5 @@
 package com.proyectoflutter.backend_api.services;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -11,7 +10,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import com.proyectoflutter.backend_api.models.EReaction;
 import com.proyectoflutter.backend_api.models.Game;
 import com.proyectoflutter.backend_api.models.GameNote;
 import com.proyectoflutter.backend_api.models.NoteReaction;
@@ -35,19 +33,22 @@ public class NoteReactionService {
     private final UserRepository userRepository;
     private final ReactionService reactionService;
     private final ReactionSummaryStrategy reactionSummaryStrategy;
+    private final GameNoteService gameNoteService;
 
     public NoteReactionService(
             NoteReactionRepository noteReactionRepository,
             GameRepository gameRepository,
             UserRepository userRepository,
             ReactionService reactionService,
-            ReactionSummaryStrategy reactionSummaryStrategy
+            ReactionSummaryStrategy reactionSummaryStrategy,
+            GameNoteService gameNoteService
     ) {
         this.noteReactionRepository = noteReactionRepository;
         this.gameRepository = gameRepository;
         this.userRepository = userRepository;
         this.reactionService = reactionService;
         this.reactionSummaryStrategy = reactionSummaryStrategy;
+        this.gameNoteService = gameNoteService;
     }
 
     @Transactional
@@ -58,13 +59,15 @@ public class NoteReactionService {
             Long reactionId
     ) {
         Game game = getGameAndValidateNoteIndex(gameId, noteIndex);
+        int safeNoteIndex = noteIndex;
+        gameNoteService.requireNotDeleted(game.getNotes().get(safeNoteIndex));
         User user = getUserByUsername(username);
         Reaction reaction = getReactionById(reactionId);
 
         // Prefer to link by persistent note id when available
         Long noteId = null;
-        if (game.getNotes() != null && noteIndex != null && noteIndex >= 0 && noteIndex < game.getNotes().size()) {
-            noteId = game.getNotes().get(noteIndex).getId();
+        if (game.getNotes() != null && safeNoteIndex >= 0 && safeNoteIndex < game.getNotes().size()) {
+            noteId = game.getNotes().get(safeNoteIndex).getId();
         }
 
         NoteReaction noteReaction;
@@ -72,15 +75,15 @@ public class NoteReactionService {
             noteReaction = noteReactionRepository
                     .findByUserIdAndGameIdAndNoteId(user.getId(), gameId, noteId)
                     .orElseGet(NoteReaction::new);
-            noteReaction.setNoteIndex(noteIndex);
+                noteReaction.setNoteIndex(safeNoteIndex);
             // set direct relation when possible
-            GameNote note = game.getNotes().get(noteIndex);
+                GameNote note = game.getNotes().get(safeNoteIndex);
             noteReaction.setNote(note);
         } else {
             noteReaction = noteReactionRepository
                     .findByUserIdAndGameIdAndNoteIndex(user.getId(), gameId, noteIndex)
                     .orElseGet(NoteReaction::new);
-            noteReaction.setNoteIndex(noteIndex);
+                noteReaction.setNoteIndex(safeNoteIndex);
         }
 
         noteReaction.setUser(user);
