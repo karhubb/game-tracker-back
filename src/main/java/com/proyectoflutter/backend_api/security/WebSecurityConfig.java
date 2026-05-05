@@ -60,35 +60,47 @@ public class WebSecurityConfig   {
   
 @Bean
 public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-  http.cors(org.springframework.security.config.Customizer.withDefaults()) 
+  http
+      .cors(org.springframework.security.config.Customizer.withDefaults()) 
       .csrf(csrf -> csrf.disable())
-        .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
-        .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-        .authorizeHttpRequests(auth ->
-          auth.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-              .requestMatchers("/", "/api/health").permitAll()
-              // Explicit auth endpoints - must be before anyRequest()
-              .requestMatchers(HttpMethod.POST, "/api/auth/signin").permitAll()
-              .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
-              .requestMatchers(HttpMethod.POST, "/api/auth/signup").permitAll()
-              .requestMatchers(HttpMethod.GET, "/api/auth/login").permitAll()
-              .requestMatchers(HttpMethod.OPTIONS, "/api/auth/**").permitAll()
-              // Games endpoints
-              .requestMatchers(HttpMethod.GET, "/api/juegos", "/api/juegos/**").permitAll()
-              .requestMatchers(HttpMethod.GET, "/api/reactions", "/api/reactions/**").permitAll()
-              .requestMatchers(HttpMethod.GET, "/api/notes/reactions/**").permitAll()
-              .requestMatchers(HttpMethod.POST, "/api/juegos/**").authenticated()
-              .requestMatchers(HttpMethod.PUT, "/api/juegos/**").authenticated()
-              .requestMatchers(HttpMethod.DELETE, "/api/juegos/**").authenticated()
-              .anyRequest().authenticated()
-        );
+      .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+  
+  // CRITICAL: AuthorizeHttpRequests MUST be configured BEFORE exceptionHandling
+  http.authorizeHttpRequests(auth -> {
+    // Public endpoints - ALL HTTP methods
+    auth.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll();
+    auth.requestMatchers("/").permitAll();
+    auth.requestMatchers("/api/health").permitAll();
     
-    http.authenticationProvider(authenticationProvider());
-
-    http.addFilterBefore(authenticationJwtTokenFilter(), UsernamePasswordAuthenticationFilter.class);
+    // Auth endpoints - EXPLICITLY allow all methods
+    auth.requestMatchers("/api/auth/signin").permitAll();
+    auth.requestMatchers("/api/auth/login").permitAll();
+    auth.requestMatchers("/api/auth/signup").permitAll();
     
-    return http.build();
-  }
+    // Games endpoints - public read, private write
+    auth.requestMatchers(HttpMethod.GET, "/api/juegos").permitAll();
+    auth.requestMatchers(HttpMethod.GET, "/api/juegos/**").permitAll();
+    auth.requestMatchers(HttpMethod.GET, "/api/reactions").permitAll();
+    auth.requestMatchers(HttpMethod.GET, "/api/reactions/**").permitAll();
+    auth.requestMatchers(HttpMethod.GET, "/api/notes/reactions/**").permitAll();
+    
+    // Protected endpoints
+    auth.requestMatchers(HttpMethod.POST, "/api/juegos/**").authenticated();
+    auth.requestMatchers(HttpMethod.PUT, "/api/juegos/**").authenticated();
+    auth.requestMatchers(HttpMethod.DELETE, "/api/juegos/**").authenticated();
+    
+    // Everything else requires authentication
+    auth.anyRequest().authenticated();
+  });
+  
+  // Exception handling AFTER authorization
+  http.exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler));
+  
+  http.authenticationProvider(authenticationProvider());
+  http.addFilterBefore(authenticationJwtTokenFilter(), UsernamePasswordAuthenticationFilter.class);
+    
+  return http.build();
+}
 
       @Bean
       public CorsConfigurationSource corsConfigurationSource() {
