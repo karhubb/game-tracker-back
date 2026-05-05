@@ -18,7 +18,8 @@ import jakarta.persistence.UniqueConstraint;
 @Table(
     name = "note_reactions",
     uniqueConstraints = {
-        @UniqueConstraint(columnNames = { "user_id", "game_id", "note_index" })
+        @UniqueConstraint(columnNames = { "user_id", "game_id", "note_index" }),
+        @UniqueConstraint(columnNames = { "user_id", "game_id", "note_id" })
     }
 )
 public class NoteReaction {
@@ -35,8 +36,12 @@ public class NoteReaction {
     @JoinColumn(name = "game_id", nullable = false)
     private Game game;
 
-    @Column(name = "note_index", nullable = false)
+    @Column(name = "note_index")
     private Integer noteIndex;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "note_id")
+    private GameNote note;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "reaction_id", nullable = false)
@@ -82,6 +87,14 @@ public class NoteReaction {
 
     public void setNoteIndex(Integer noteIndex) {
         this.noteIndex = noteIndex;
+    }
+
+    public GameNote getNote() {
+        return note;
+    }
+
+    public void setNote(GameNote note) {
+        this.note = note;
     }
 
     public Reaction getReaction() {

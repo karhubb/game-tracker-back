@@ -18,9 +18,17 @@ public interface NoteReactionRepository extends JpaRepository<NoteReaction, Long
 
     Optional<NoteReaction> findByUserIdAndGameIdAndNoteIndex(Long userId, Long gameId, Integer noteIndex);
 
+    List<NoteReaction> findByGameIdAndNoteId(Long gameId, Long noteId);
+
+    Optional<NoteReaction> findByUserIdAndGameIdAndNoteId(Long userId, Long gameId, Long noteId);
+
     @Modifying
     @Query("delete from NoteReaction nr where nr.game.id = :gameId and nr.noteIndex = :noteIndex")
     void deleteByGameIdAndNoteIndex(@Param("gameId") Long gameId, @Param("noteIndex") Integer noteIndex);
+
+    @Modifying
+    @Query("delete from NoteReaction nr where nr.game.id = :gameId and nr.note.id = :noteId")
+    void deleteByGameIdAndNoteId(@Param("gameId") Long gameId, @Param("noteId") Long noteId);
 
     @Modifying
     @Query("delete from NoteReaction nr where nr.game.id = :gameId")
@@ -33,4 +41,8 @@ public interface NoteReactionRepository extends JpaRepository<NoteReaction, Long
     long countByGameIdAndNoteIndexAndReactionId(Long gameId, Integer noteIndex, Long reactionId);
 
     void deleteByUserIdAndGameIdAndNoteIndex(Long userId, Long gameId, Integer noteIndex);
+
+    @Modifying
+    @Query("delete from NoteReaction nr where nr.user.id = :userId and nr.game.id = :gameId and nr.note.id = :noteId")
+    void deleteByUserIdAndGameIdAndNoteId(@Param("userId") Long userId, @Param("gameId") Long gameId, @Param("noteId") Long noteId);
 }

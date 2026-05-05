@@ -1,32 +1,28 @@
 package com.proyectoflutter.backend_api.controllers;
 
-import java.util.Comparator;
-import java.util.List;
-
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.proyectoflutter.backend_api.payload.response.ReactionTypeResponseDTO;
-import com.proyectoflutter.backend_api.repository.ReactionRepository;
+import com.proyectoflutter.backend_api.services.ReactionService;
 
 @CrossOrigin(origins = "*", maxAge = 3600)
 @RestController
 @RequestMapping("/api/reactions")
 public class ReactionController {
 
-    private final ReactionRepository reactionRepository;
+    // Controlador fino: expone DTOs de catálogo sin mezclar la consulta HTTP
+    // con la lógica de acceso a datos, manteniendo el mismo estilo de los demás endpoints.
+    private final ReactionService reactionService;
 
-    public ReactionController(ReactionRepository reactionRepository) {
-        this.reactionRepository = reactionRepository;
+    public ReactionController(ReactionService reactionService) {
+        this.reactionService = reactionService;
     }
 
     @GetMapping
-    public List<ReactionTypeResponseDTO> getReactionTypes() {
-        return reactionRepository.findAll().stream()
-                .sorted(Comparator.comparingLong(r -> r.getId() == null ? Long.MAX_VALUE : r.getId()))
-                .map(ReactionTypeResponseDTO::new)
-                .toList();
+    public java.util.List<ReactionTypeResponseDTO> getReactionTypes() {
+        return reactionService.getReactionTypes();
     }
 }

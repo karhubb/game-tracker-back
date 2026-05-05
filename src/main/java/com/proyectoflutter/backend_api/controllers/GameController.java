@@ -3,15 +3,16 @@ package com.proyectoflutter.backend_api.controllers;
 import com.proyectoflutter.backend_api.models.Game;
 import com.proyectoflutter.backend_api.models.GameNote;
 import com.proyectoflutter.backend_api.repository.GameRepository;
+import com.proyectoflutter.backend_api.security.services.CurrentUserService;
+import com.proyectoflutter.backend_api.services.NoteAuthorizationService;
 import com.proyectoflutter.backend_api.services.NoteReactionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @RestController
@@ -24,6 +25,12 @@ public class GameController {
 
     @Autowired
     private NoteReactionService noteReactionService;
+
+    @Autowired
+    private CurrentUserService currentUserService;
+
+    @Autowired
+    private NoteAuthorizationService noteAuthorizationService;
 
     private Game getGameOrThrow(Long id) {
         return gameRepository.findById(id)
@@ -40,20 +47,11 @@ public class GameController {
     }
 
     private String currentUsername() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || authentication.getName() == null || authentication.getName().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User is not authenticated");
-        }
-        return authentication.getName();
+        return currentUserService.requireUsername();
     }
 
     private boolean hasRole(String roleName) {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null) {
-            return false;
-        }
-        return authentication.getAuthorities().stream()
-                .anyMatch(auth -> roleName.equals(auth.getAuthority()));
+        return currentUserService.hasRole(roleName);
     }
 
     private void requireAdmin() {
@@ -63,29 +61,33 @@ public class GameController {
     }
 
     private void requireNoteEditPermission(GameNote note) {
-        String username = currentUsername();
-        boolean isAdmin = hasRole("ROLE_ADMIN");
-
-        if (isAdmin) {
-            return;
-        }
-
-        if (note.getAuthorUsername() == null || !note.getAuthorUsername().equals(username)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can edit only your own notes");
-        }
+        noteAuthorizationService.requireNoteEditPermission(note);
     }
 
     private void requireNoteDeletePermission(GameNote note) {
-        String username = currentUsername();
-        boolean isAdmin = hasRole("ROLE_ADMIN");
-        boolean isModerator = hasRole("ROLE_MODERATOR");
+        noteAuthorizationService.requireNoteDeletePermission(note);
+    }
 
-        if (isAdmin || isModerator) {
-            return;
-        }
-
-        if (note.getAuthorUsername() == null || !note.getAuthorUsername().equals(username)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can delete only your own notes");
+    /**
+     * Recalcula y persiste parentIndex en todas las notas de la lista
+     * según su referencia parent. Necesario después de cualquier inserción
+     * o borrado que pueda haber desplazado los índices.
+     */
+    private void reindexParentIndexes(List<GameNote> notes) {
+        for (int i = 0; i < notes.size(); i++) {
+            GameNote note = notes.get(i);
+            GameNote parent = note.getParent();
+            if (parent == null) {
+                note.setParentIndex(null);
+            } else {
+                // Buscar el índice actual del padre en la lista
+                for (int j = 0; j < notes.size(); j++) {
+                    if (notes.get(j) == parent || (parent.getId() != null && parent.getId().equals(notes.get(j).getId()))) {
+                        note.setParentIndex(j);
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -116,8 +118,8 @@ public class GameController {
         game.setCategory(gameDetails.getCategory());
         game.setRating(gameDetails.getRating());
         game.setPlayed(gameDetails.getPlayed());
-        game.setNotes(gameDetails.getNotes());
-        // serializeNotes() es llamado automáticamente por setNotes()
+        // NOTA: las notas se gestionan exclusivamente via /notes endpoints.
+        // NO llamar game.setNotes() aquí.
 
         return gameRepository.save(game);
     }
@@ -125,23 +127,49 @@ public class GameController {
     // CREAR una opinión específica (POST)
     @PostMapping("/{id}/notes")
     @Transactional
-    public Game addGameNote(@PathVariable Long id, @RequestBody GameNote noteDetails) {
+    @ResponseStatus(HttpStatus.CREATED)
+    public void addGameNote(@PathVariable Long id, @RequestBody GameNote noteDetails) {
         Game game = getGameOrThrow(id);
 
         if (noteDetails.getContent() == null || noteDetails.getContent().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Note content cannot be empty");
         }
 
+        // IMPORTANTE: notes ES la misma referencia que game.notes (colección Hibernate).
+        // No llamar game.setNotes(notes) — haría clear() sobre esta misma lista y borraría todo.
         List<GameNote> notes = game.getNotes();
+
         GameNote newNote = new GameNote();
         newNote.setContent(noteDetails.getContent().trim());
         newNote.setDate(noteDetails.getDate() != null ? noteDetails.getDate() : java.time.LocalDateTime.now());
-        newNote.setAuthorUsername(currentUsername());
+        newNote.setAuthorUsername(currentUserService.requireUsername());
+        newNote.setGame(game);
 
-        notes.add(newNote);
-        game.setNotes(notes);
+        Integer parentIndex = noteDetails.getParentIndex();
 
-        return gameRepository.save(game);
+        if (parentIndex == null) {
+            newNote.setParentIndex(null);
+            notes.add(newNote);
+        } else {
+            if (parentIndex < 0 || parentIndex >= notes.size()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Parent index out of bounds: " + parentIndex);
+            }
+            // Insertar justo después del último descendiente del padre
+            int insertAt = parentIndex + 1;
+            for (int i = parentIndex + 1; i < notes.size(); i++) {
+                if (!isDescendant(notes, i, parentIndex)) break;
+                insertAt = i + 1;
+            }
+            newNote.setParent(notes.get(parentIndex));
+            newNote.setParentIndex(parentIndex);
+            notes.get(parentIndex).getChildren().add(newNote);
+            notes.add(insertAt, newNote);
+        }
+
+        // Recalcular parentIndex de todas las notas (la inserción pudo desplazar índices)
+        reindexParentIndexes(notes);
+
+        gameRepository.save(game);
     }
 
     // EDITAR una opinión específica (PUT)
@@ -167,12 +195,10 @@ public class GameController {
             current.setDate(noteDetails.getDate());
         }
         if (current.getAuthorUsername() == null || current.getAuthorUsername().isBlank()) {
-            current.setAuthorUsername(currentUsername());
+            current.setAuthorUsername(currentUserService.requireUsername());
         }
 
-        notes.set(noteIndex, current);
-        game.setNotes(notes);
-
+        // No llamar game.setNotes(notes) — mismo bug de referencia compartida.
         return gameRepository.save(game);
     }
 
@@ -186,14 +212,43 @@ public class GameController {
 
         requireNoteDeletePermission(notes.get(noteIndex));
 
-        noteReactionService.handleNoteDeleted(id, noteIndex);
-        notes.remove(noteIndex);
-        game.setNotes(notes);
+        // Recoger todos los índices a borrar (nota raíz + todos sus descendientes)
+        List<Integer> toRemove = collectDescendantIndexes(notes, noteIndex);
+        // Borrar de mayor a menor para no desplazar índices
+        toRemove.sort((a, b) -> b - a);
+        for (Integer idx : toRemove) {
+            noteReactionService.handleNoteDeleted(id, idx);
+            notes.remove((int) idx);
+        }
 
+        // Recalcular parentIndex tras el borrado (los índices se desplazaron)
+        reindexParentIndexes(notes);
+
+        // No llamar game.setNotes(notes) — mismo bug de referencia compartida.
         return gameRepository.save(game);
     }
 
-    // ELIMINAR (DELETE)
+    // Helper: ¿es candidateIndex descendiente de ancestorIndex?
+    private boolean isDescendant(List<GameNote> notes, int candidateIndex, int ancestorIndex) {
+        Integer parentIndex = notes.get(candidateIndex).getParentIndex();
+        while (parentIndex != null) {
+            if (parentIndex == ancestorIndex) return true;
+            if (parentIndex < 0 || parentIndex >= notes.size()) return false;
+            parentIndex = notes.get(parentIndex).getParentIndex();
+        }
+        return false;
+    }
+
+    private List<Integer> collectDescendantIndexes(List<GameNote> notes, int rootIndex) {
+        List<Integer> removed = new ArrayList<>();
+        removed.add(rootIndex);
+        for (int i = rootIndex + 1; i < notes.size(); i++) {
+            if (isDescendant(notes, i, rootIndex)) removed.add(i);
+        }
+        return removed;
+    }
+
+    // ELIMINAR juego (DELETE)
     @DeleteMapping("/{id}")
     @Transactional
     public void deleteGame(@PathVariable Long id) {

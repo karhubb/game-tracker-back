@@ -13,6 +13,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import com.proyectoflutter.backend_api.models.EReaction;
 import com.proyectoflutter.backend_api.models.Game;
+import com.proyectoflutter.backend_api.models.GameNote;
 import com.proyectoflutter.backend_api.models.NoteReaction;
 import com.proyectoflutter.backend_api.models.Reaction;
 import com.proyectoflutter.backend_api.models.User;
@@ -20,27 +21,33 @@ import com.proyectoflutter.backend_api.payload.response.NoteReactionResponseDTO;
 import com.proyectoflutter.backend_api.payload.response.NoteReactionSummaryDTO;
 import com.proyectoflutter.backend_api.repository.GameRepository;
 import com.proyectoflutter.backend_api.repository.NoteReactionRepository;
-import com.proyectoflutter.backend_api.repository.ReactionRepository;
 import com.proyectoflutter.backend_api.repository.UserRepository;
+import com.proyectoflutter.backend_api.services.reactions.ReactionSummaryStrategy;
 
 @Service
 public class NoteReactionService {
 
+    // Orquestador de casos de uso: aplica validación, reglas de negocio y
+    // armado de DTOs. Mantiene el controller libre de lógica y centraliza la
+    // transacción para crear, resumir y borrar reacciones de una opinión.
     private final NoteReactionRepository noteReactionRepository;
     private final GameRepository gameRepository;
     private final UserRepository userRepository;
-    private final ReactionRepository reactionRepository;
+    private final ReactionService reactionService;
+    private final ReactionSummaryStrategy reactionSummaryStrategy;
 
     public NoteReactionService(
             NoteReactionRepository noteReactionRepository,
             GameRepository gameRepository,
             UserRepository userRepository,
-            ReactionRepository reactionRepository
+            ReactionService reactionService,
+            ReactionSummaryStrategy reactionSummaryStrategy
     ) {
         this.noteReactionRepository = noteReactionRepository;
         this.gameRepository = gameRepository;
         this.userRepository = userRepository;
-        this.reactionRepository = reactionRepository;
+        this.reactionService = reactionService;
+        this.reactionSummaryStrategy = reactionSummaryStrategy;
     }
 
     @Transactional
@@ -54,48 +61,84 @@ public class NoteReactionService {
         User user = getUserByUsername(username);
         Reaction reaction = getReactionById(reactionId);
 
-        NoteReaction noteReaction = noteReactionRepository
-                .findByUserIdAndGameIdAndNoteIndex(user.getId(), gameId, noteIndex)
-                .orElseGet(NoteReaction::new);
+        // Prefer to link by persistent note id when available
+        Long noteId = null;
+        if (game.getNotes() != null && noteIndex != null && noteIndex >= 0 && noteIndex < game.getNotes().size()) {
+            noteId = game.getNotes().get(noteIndex).getId();
+        }
+
+        NoteReaction noteReaction;
+        if (noteId != null) {
+            noteReaction = noteReactionRepository
+                    .findByUserIdAndGameIdAndNoteId(user.getId(), gameId, noteId)
+                    .orElseGet(NoteReaction::new);
+            noteReaction.setNoteIndex(noteIndex);
+            // set direct relation when possible
+            GameNote note = game.getNotes().get(noteIndex);
+            noteReaction.setNote(note);
+        } else {
+            noteReaction = noteReactionRepository
+                    .findByUserIdAndGameIdAndNoteIndex(user.getId(), gameId, noteIndex)
+                    .orElseGet(NoteReaction::new);
+            noteReaction.setNoteIndex(noteIndex);
+        }
 
         noteReaction.setUser(user);
         noteReaction.setGame(game);
-        noteReaction.setNoteIndex(noteIndex);
         noteReaction.setReaction(reaction);
 
         NoteReaction saved = noteReactionRepository.save(noteReaction);
-        return new NoteReactionResponseDTO(saved);
+        return NoteReactionResponseDTO.fromEntity(saved);
     }
 
     @Transactional
     public void removeReaction(String username, Long gameId, Integer noteIndex) {
         Game game = getGameAndValidateNoteIndex(gameId, noteIndex);
         User user = getUserByUsername(username);
-        noteReactionRepository.deleteByUserIdAndGameIdAndNoteIndex(user.getId(), game.getId(), noteIndex);
+        // prefer deleting by note id when present
+        Long noteId = null;
+        if (game.getNotes() != null && noteIndex != null && noteIndex >= 0 && noteIndex < game.getNotes().size()) {
+            noteId = game.getNotes().get(noteIndex).getId();
+        }
+        if (noteId != null) {
+            noteReactionRepository.deleteByUserIdAndGameIdAndNoteId(user.getId(), game.getId(), noteId);
+        } else {
+            noteReactionRepository.deleteByUserIdAndGameIdAndNoteIndex(user.getId(), game.getId(), noteIndex);
+        }
     }
 
     @Transactional(readOnly = true)
     public List<NoteReactionResponseDTO> getReactionsForNote(Long gameId, Integer noteIndex) {
         getGameAndValidateNoteIndex(gameId, noteIndex);
+        Long noteId = null;
+        // try to resolve note id
+        Game g = gameRepository.findById(gameId).orElseThrow();
+        if (g.getNotes() != null && noteIndex != null && noteIndex >= 0 && noteIndex < g.getNotes().size()) {
+            noteId = g.getNotes().get(noteIndex).getId();
+        }
+
+        if (noteId != null) {
+            return noteReactionRepository.findByGameIdAndNoteId(gameId, noteId)
+                    .stream().map(NoteReactionResponseDTO::fromEntity).collect(Collectors.toList());
+        }
+
         return noteReactionRepository.findByGameIdAndNoteIndex(gameId, noteIndex)
-                .stream()
-                .map(NoteReactionResponseDTO::new)
-                .collect(Collectors.toList());
+                .stream().map(NoteReactionResponseDTO::fromEntity).collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public NoteReactionSummaryDTO getReactionSummary(Long gameId, Integer noteIndex, String username) {
         getGameAndValidateNoteIndex(gameId, noteIndex);
-
-        List<NoteReaction> reactions = noteReactionRepository.findByGameIdAndNoteIndex(gameId, noteIndex);
-
-        Map<String, Long> counts = new LinkedHashMap<>();
-        for (EReaction reactionType : EReaction.values()) {
-            long total = reactions.stream()
-                    .filter(r -> r.getReaction().getDescription() == reactionType)
-                    .count();
-            counts.put(reactionType.name(), total);
+        Long noteId = null;
+        Game g = gameRepository.findById(gameId).orElseThrow();
+        if (g.getNotes() != null && noteIndex != null && noteIndex >= 0 && noteIndex < g.getNotes().size()) {
+            noteId = g.getNotes().get(noteIndex).getId();
         }
+
+        List<NoteReaction> reactions = noteId != null
+                ? noteReactionRepository.findByGameIdAndNoteId(gameId, noteId)
+                : noteReactionRepository.findByGameIdAndNoteIndex(gameId, noteIndex);
+        Map<String, Long> counts = reactionSummaryStrategy.countReactions(reactions);
 
         NoteReactionSummaryDTO summary = new NoteReactionSummaryDTO();
         summary.setGameId(gameId);
@@ -104,9 +147,13 @@ public class NoteReactionService {
         summary.setTotal(reactions.size());
 
         if (username != null && !username.isBlank()) {
-            Optional<NoteReaction> mine = noteReactionRepository
-                    .findByUserIdAndGameIdAndNoteIndex(getUserByUsername(username).getId(), gameId, noteIndex);
-            mine.map(NoteReactionResponseDTO::new).ifPresent(summary::setMyReaction);
+            Optional<NoteReaction> mine;
+            if (noteId != null) {
+                mine = noteReactionRepository.findByUserIdAndGameIdAndNoteId(getUserByUsername(username).getId(), gameId, noteId);
+            } else {
+                mine = noteReactionRepository.findByUserIdAndGameIdAndNoteIndex(getUserByUsername(username).getId(), gameId, noteIndex);
+            }
+            mine.map(NoteReactionResponseDTO::fromEntity).ifPresent(summary::setMyReaction);
         }
 
         return summary;
@@ -149,7 +196,7 @@ public class NoteReactionService {
     }
 
     private Reaction getReactionById(Long reactionId) {
-        return reactionRepository.findById(reactionId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reaction not found with id: " + reactionId));
+        return reactionService.getReactionById(reactionId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reaction not found with id: " + reactionId));
     }
 }

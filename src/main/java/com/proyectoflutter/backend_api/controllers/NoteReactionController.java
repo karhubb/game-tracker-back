@@ -5,8 +5,6 @@ import java.util.List;
 import jakarta.validation.Valid;
 
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,6 +18,7 @@ import com.proyectoflutter.backend_api.payload.request.NoteReactionRequest;
 import com.proyectoflutter.backend_api.payload.response.MessageResponse;
 import com.proyectoflutter.backend_api.payload.response.NoteReactionResponseDTO;
 import com.proyectoflutter.backend_api.payload.response.NoteReactionSummaryDTO;
+import com.proyectoflutter.backend_api.security.services.CurrentUserService;
 import com.proyectoflutter.backend_api.services.NoteReactionService;
 
 @CrossOrigin(origins = "*", maxAge = 3600)
@@ -28,9 +27,11 @@ import com.proyectoflutter.backend_api.services.NoteReactionService;
 public class NoteReactionController {
 
     private final NoteReactionService noteReactionService;
+    private final CurrentUserService currentUserService;
 
-    public NoteReactionController(NoteReactionService noteReactionService) {
+    public NoteReactionController(NoteReactionService noteReactionService, CurrentUserService currentUserService) {
         this.noteReactionService = noteReactionService;
+        this.currentUserService = currentUserService;
     }
 
     @PostMapping("/games/{gameId}/notes/{noteIndex}")
@@ -40,7 +41,7 @@ public class NoteReactionController {
             @Valid @RequestBody NoteReactionRequest request
     ) {
         NoteReactionResponseDTO response = noteReactionService.createOrUpdateReaction(
-                currentUsername(),
+                currentUserService.requireUsername(),
                 gameId,
                 noteIndex,
                 request.getReactionId()
@@ -53,7 +54,7 @@ public class NoteReactionController {
             @PathVariable Long gameId,
             @PathVariable Integer noteIndex
     ) {
-        noteReactionService.removeReaction(currentUsername(), gameId, noteIndex);
+        noteReactionService.removeReaction(currentUserService.requireUsername(), gameId, noteIndex);
         return ResponseEntity.ok(new MessageResponse("Reaction removed"));
     }
 
@@ -62,7 +63,7 @@ public class NoteReactionController {
             @PathVariable Long gameId,
             @PathVariable Integer noteIndex
     ) {
-        String username = isAuthenticated() ? currentUsername() : null;
+        String username = currentUserService.getUsername().orElse(null);
         return ResponseEntity.ok(noteReactionService.getReactionSummary(gameId, noteIndex, username));
     }
 
@@ -72,22 +73,5 @@ public class NoteReactionController {
             @PathVariable Integer noteIndex
     ) {
         return ResponseEntity.ok(noteReactionService.getReactionsForNote(gameId, noteIndex));
-    }
-
-    private String currentUsername() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null) {
-            return null;
-        }
-        return authentication.getName();
-    }
-
-    private boolean isAuthenticated() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null) {
-            return false;
-        }
-        String principal = authentication.getName();
-        return principal != null && !principal.isBlank() && !"anonymousUser".equalsIgnoreCase(principal);
     }
 }

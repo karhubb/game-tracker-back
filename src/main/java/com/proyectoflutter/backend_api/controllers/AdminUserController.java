@@ -3,12 +3,11 @@ package com.proyectoflutter.backend_api.controllers;
 import com.proyectoflutter.backend_api.models.User;
 import com.proyectoflutter.backend_api.payload.request.SignupRequest;
 import com.proyectoflutter.backend_api.repository.UserRepository;
+import com.proyectoflutter.backend_api.security.services.CurrentUserService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -24,10 +23,12 @@ public class AdminUserController {
 
     private final AuthController authController;
     private final UserRepository userRepository;
+    private final CurrentUserService currentUserService;
 
-    public AdminUserController(AuthController authController, UserRepository userRepository) {
+    public AdminUserController(AuthController authController, UserRepository userRepository, CurrentUserService currentUserService) {
         this.authController = authController;
         this.userRepository = userRepository;
+        this.currentUserService = currentUserService;
     }
 
     @PostMapping
@@ -49,8 +50,7 @@ public class AdminUserController {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String currentUsername = auth != null ? auth.getName() : null;
+        String currentUsername = currentUserService.getUsername().orElse(null);
 
         if (currentUsername != null && currentUsername.equals(user.getUsername())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "You cannot delete your own user");

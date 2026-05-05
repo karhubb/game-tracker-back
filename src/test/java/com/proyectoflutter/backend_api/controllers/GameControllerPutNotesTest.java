@@ -29,6 +29,12 @@ class GameControllerPutNotesTest {
 
     @MockitoBean
     private GameRepository gameRepository;
+    @MockitoBean
+    private com.proyectoflutter.backend_api.services.NoteReactionService noteReactionService;
+    @MockitoBean
+    private com.proyectoflutter.backend_api.security.services.CurrentUserService currentUserService;
+    @MockitoBean
+    private com.proyectoflutter.backend_api.services.NoteAuthorizationService noteAuthorizationService;
 
     @Test
     void putUpdatesGameAndSerializesNotesIntoNotesJson() throws Exception {
@@ -43,6 +49,7 @@ class GameControllerPutNotesTest {
 
         when(gameRepository.findById(3L)).thenReturn(Optional.of(existing));
         when(gameRepository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(currentUserService.hasRole("ROLE_ADMIN")).thenReturn(true);
 
         String payload = """
                 {

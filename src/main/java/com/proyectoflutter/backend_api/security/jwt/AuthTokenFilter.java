@@ -33,19 +33,29 @@ public class AuthTokenFilter extends OncePerRequestFilter {
       throws ServletException, IOException {
     try {
       String jwt = parseJwt(request);
-      if (jwt != null && jwtUtils.validateJwtToken(jwt)) {
-        String username = jwtUtils.getUserNameFromJwtToken(jwt);
-        
+      logger.debug("JWT token parsed: {}", jwt != null ? "present" : "absent");
+      if (jwt != null) {
+        logger.debug("Validating JWT token...");
+        if (jwtUtils.validateJwtToken(jwt)) {
+          String username = jwtUtils.getUserNameFromJwtToken(jwt);
+          logger.debug("JWT valid. Username: {}", username);
 
-        UserDetails userDetails = userDetailsService.loadUserByUsername(username);
-        UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(userDetails, null,
-            userDetails.getAuthorities());
-        authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+          UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+          logger.debug("Loaded user details for: {}", username);
+          UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(userDetails, null,
+              userDetails.getAuthorities());
+          authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
-        SecurityContextHolder.getContext().setAuthentication(authentication);
+          SecurityContextHolder.getContext().setAuthentication(authentication);
+          logger.debug("Authentication set in SecurityContext");
+        } else {
+          logger.warn("JWT validation failed for token: {}", jwt.substring(0, Math.min(20, jwt.length())) + "...");
+        }
+      } else {
+        logger.debug("No JWT token found in Authorization header");
       }
     } catch (Exception e) {
-      logger.error("Cannot set user authentication: {}", e);
+      logger.error("Cannot set user authentication: ", e);
     }
 
     filterChain.doFilter(request, response);
