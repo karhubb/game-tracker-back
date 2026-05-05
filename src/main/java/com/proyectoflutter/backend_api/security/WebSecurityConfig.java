@@ -60,8 +60,6 @@ public class WebSecurityConfig   {
   
 @Bean
 public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-  // Cambia .cors(cors -> {}) por .cors(withDefaults())
-  // Esto obliga a Spring a usar tu Bean corsConfigurationSource()
   http.cors(org.springframework.security.config.Customizer.withDefaults()) 
       .csrf(csrf -> csrf.disable())
         .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
@@ -69,7 +67,13 @@ public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         .authorizeHttpRequests(auth ->
           auth.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
               .requestMatchers("/", "/api/health").permitAll()
-              .requestMatchers("/api/auth/**").permitAll()
+              // Explicit auth endpoints - must be before anyRequest()
+              .requestMatchers(HttpMethod.POST, "/api/auth/signin").permitAll()
+              .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
+              .requestMatchers(HttpMethod.POST, "/api/auth/signup").permitAll()
+              .requestMatchers(HttpMethod.GET, "/api/auth/login").permitAll()
+              .requestMatchers(HttpMethod.OPTIONS, "/api/auth/**").permitAll()
+              // Games endpoints
               .requestMatchers(HttpMethod.GET, "/api/juegos", "/api/juegos/**").permitAll()
               .requestMatchers(HttpMethod.GET, "/api/reactions", "/api/reactions/**").permitAll()
               .requestMatchers(HttpMethod.GET, "/api/notes/reactions/**").permitAll()
