@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS notes (
   game_id BIGINT NOT NULL,
   parent_id BIGINT DEFAULT NULL,
   content TEXT,
+  deleted BOOLEAN NOT NULL DEFAULT FALSE,
   date TIMESTAMP,
   author_username VARCHAR(255),
   note_index INT,

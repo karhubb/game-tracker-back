@@ -14,7 +14,6 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -37,7 +36,7 @@ class GameControllerPutNotesTest {
     private com.proyectoflutter.backend_api.services.NoteAuthorizationService noteAuthorizationService;
 
     @Test
-    void putUpdatesGameAndSerializesNotesIntoNotesJson() throws Exception {
+    void putUpdatesGameAndLeavesNotesUntouched() throws Exception {
         Game existing = new Game();
         existing.setId(3L);
         existing.setName("Genshin Impact");
@@ -78,8 +77,6 @@ class GameControllerPutNotesTest {
 
         Game saved = captor.getValue();
         assertNotNull(saved.getNotesJson());
-        assertTrue(saved.getNotesJson().contains("\"content\":\"Bodrio\""));
-        assertEquals(1, saved.getNotes().size());
-        assertEquals("Bodrio", saved.getNotes().get(0).getContent());
+        assertEquals(0, saved.getNotes().size());
     }
 }

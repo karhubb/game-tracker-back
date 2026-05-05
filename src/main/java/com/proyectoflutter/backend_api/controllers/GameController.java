@@ -12,8 +12,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/juegos")
@@ -46,10 +48,6 @@ public class GameController {
         }
     }
 
-    private String currentUsername() {
-        return currentUserService.requireUsername();
-    }
-
     private boolean hasRole(String roleName) {
         return currentUserService.hasRole(roleName);
     }
@@ -74,19 +72,28 @@ public class GameController {
      * o borrado que pueda haber desplazado los índices.
      */
     private void reindexParentIndexes(List<GameNote> notes) {
+        Map<GameNote, Integer> indexByNote = new IdentityHashMap<>();
+        Map<Long, Integer> indexById = new HashMap<>();
+
+        for (int i = 0; i < notes.size(); i++) {
+            GameNote note = notes.get(i);
+            indexByNote.put(note, i);
+            if (note.getId() != null) {
+                indexById.put(note.getId(), i);
+            }
+        }
+
         for (int i = 0; i < notes.size(); i++) {
             GameNote note = notes.get(i);
             GameNote parent = note.getParent();
             if (parent == null) {
                 note.setParentIndex(null);
             } else {
-                // Buscar el índice actual del padre en la lista
-                for (int j = 0; j < notes.size(); j++) {
-                    if (notes.get(j) == parent || (parent.getId() != null && parent.getId().equals(notes.get(j).getId()))) {
-                        note.setParentIndex(j);
-                        break;
-                    }
+                Integer parentIndex = indexByNote.get(parent);
+                if (parentIndex == null && parent.getId() != null) {
+                    parentIndex = indexById.get(parent.getId());
                 }
+                note.setParentIndex(parentIndex);
             }
         }
     }
@@ -210,19 +217,24 @@ public class GameController {
         List<GameNote> notes = game.getNotes();
         validateNoteIndex(notes, noteIndex);
 
-        requireNoteDeletePermission(notes.get(noteIndex));
+        GameNote target = notes.get(noteIndex);
+        requireNoteDeletePermission(target);
 
-        // Recoger todos los índices a borrar (nota raíz + todos sus descendientes)
-        List<Integer> toRemove = collectDescendantIndexes(notes, noteIndex);
-        // Borrar de mayor a menor para no desplazar índices
-        toRemove.sort((a, b) -> b - a);
-        for (Integer idx : toRemove) {
-            noteReactionService.handleNoteDeleted(id, idx);
-            notes.remove((int) idx);
+        if (target.getChildren().isEmpty()) {
+            GameNote parent = target.getParent();
+            if (parent != null) {
+                parent.getChildren().remove(target);
+            }
+
+            noteReactionService.handleNoteDeleted(id, noteIndex);
+            notes.remove(noteIndex);
+
+            // Recalcular parentIndex tras el borrado físico (los índices se desplazaron)
+            reindexParentIndexes(notes);
+        } else {
+            target.setContent("El contenido de este comentario se ha eliminado.");
+            target.setDeleted(true);
         }
-
-        // Recalcular parentIndex tras el borrado (los índices se desplazaron)
-        reindexParentIndexes(notes);
 
         // No llamar game.setNotes(notes) — mismo bug de referencia compartida.
         return gameRepository.save(game);
@@ -237,15 +249,6 @@ public class GameController {
             parentIndex = notes.get(parentIndex).getParentIndex();
         }
         return false;
-    }
-
-    private List<Integer> collectDescendantIndexes(List<GameNote> notes, int rootIndex) {
-        List<Integer> removed = new ArrayList<>();
-        removed.add(rootIndex);
-        for (int i = rootIndex + 1; i < notes.size(); i++) {
-            if (isDescendant(notes, i, rootIndex)) removed.add(i);
-        }
-        return removed;
     }
 
     // ELIMINAR juego (DELETE)

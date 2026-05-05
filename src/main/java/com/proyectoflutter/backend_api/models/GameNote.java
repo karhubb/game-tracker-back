@@ -26,6 +26,9 @@ public class GameNote {
     @Column(columnDefinition = "TEXT")
     private String content;
 
+    @Column(nullable = false)
+    private boolean deleted = false;
+
     private LocalDateTime date;
 
     private String authorUsername;
@@ -60,6 +63,9 @@ public class GameNote {
 
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
+
+    public boolean isDeleted() { return deleted; }
+    public void setDeleted(boolean deleted) { this.deleted = deleted; }
 
     public LocalDateTime getDate() { return date; }
     public void setDate(LocalDateTime date) { this.date = date; }
