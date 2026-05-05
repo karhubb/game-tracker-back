@@ -25,11 +25,12 @@ public class Game {
     @Column(nullable = false)
     private Integer rating = 5;
 
-    @OneToMany(mappedBy = "game", cascade = CascadeType.ALL, orphanRemoval = true)
-    @OrderColumn(name = "note_index")
-    private List<GameNote> notes = new ArrayList<>();
-    @Column(nullable = false)
-    private Boolean played;
+@OneToMany(mappedBy = "game", cascade = CascadeType.ALL, orphanRemoval = true)
+@OrderBy("id ASC") // Esto ordena las notas por su ID de forma ascendente
+private List<GameNote> notes = new ArrayList<>();
+
+@Column(nullable = false)
+private Boolean played;
 
     public List<GameNote> getNotes() { return notes; }
     public void setNotes(List<GameNote> notes) { 
