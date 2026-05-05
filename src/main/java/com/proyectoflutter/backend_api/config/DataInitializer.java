@@ -67,7 +67,12 @@ public class DataInitializer implements ApplicationRunner {
         }
 
         if (userRepository.existsByUsername(adminUsername)) {
-            logger.info("Admin user '{}' already exists, skipping bootstrap", adminUsername);
+            // Actualizar la contraseña por si cambió la variable de entorno
+            userRepository.findByUsername(adminUsername).ifPresent(user -> {
+                user.setPassword(passwordEncoder.encode(adminPassword));
+                userRepository.save(user);
+                logger.info("Admin user '{}' password updated", adminUsername);
+            });
             return;
         }
 
