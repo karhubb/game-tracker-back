@@ -242,12 +242,12 @@ public class GameController {
         }
 
         GameNote target = notes.get(noteIndex);
-        gameNoteService.requireNotDeleted(target);
         requireNoteDeletePermission(target);
         noteAuthorizationService.requireDeleteStrategy(target, strategy);
 
         switch (strategy) {
             case SOFT_DELETE:
+                gameNoteService.requireNotDeleted(target);
                 performSoftDelete(target);
                 break;
             case HARD_DELETE:
