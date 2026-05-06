@@ -1,5 +1,6 @@
 package com.proyectoflutter.backend_api.controllers;
 
+import com.proyectoflutter.backend_api.models.DeleteStrategy;
 import com.proyectoflutter.backend_api.models.Game;
 import com.proyectoflutter.backend_api.models.GameNote;
 import com.proyectoflutter.backend_api.repository.GameRepository;
@@ -215,35 +216,123 @@ public class GameController {
     }
 
     // ELIMINAR una opinión específica (DELETE)
+    // Supports multiple deletion strategies:
+    // - SOFT_DELETE (default): Mark deleted with placeholder, preserve structure
+    // - HARD_DELETE: Remove note only (if no children, throws error if has children)
+    // - CASCADE_DELETE: Remove note + all descendants (admin-only)
     @DeleteMapping("/{id}/notes/{noteIndex}")
     @Transactional
-    public Game deleteGameNote(@PathVariable Long id, @PathVariable int noteIndex) {
+    public Game deleteGameNote(
+            @PathVariable Long id,
+            @PathVariable int noteIndex,
+            @RequestParam(value = "strategy", defaultValue = "SOFT_DELETE") String strategyParam
+    ) {
         Game game = getGameOrThrow(id);
         List<GameNote> notes = game.getNotes();
         validateNoteIndex(notes, noteIndex);
 
+        DeleteStrategy strategy;
+        try {
+            strategy = DeleteStrategy.valueOf(strategyParam);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Invalid delete strategy: " + strategyParam + ". Valid values: SOFT_DELETE, HARD_DELETE, CASCADE_DELETE"
+            );
+        }
+
         GameNote target = notes.get(noteIndex);
         gameNoteService.requireNotDeleted(target);
         requireNoteDeletePermission(target);
+        noteAuthorizationService.requireDeleteStrategy(target, strategy);
 
-        if (target.getChildren().isEmpty()) {
-            GameNote parent = target.getParent();
-            if (parent != null) {
-                parent.getChildren().remove(target);
-            }
-
-            noteReactionService.handleNoteDeleted(id, noteIndex);
-            notes.remove(noteIndex);
-
-            // Recalcular parentIndex tras el borrado físico (los índices se desplazaron)
-            reindexParentIndexes(notes);
-        } else {
-            target.setContent(GameNoteService.DELETED_PLACEHOLDER);
-            target.setDeleted(true);
+        switch (strategy) {
+            case SOFT_DELETE:
+                performSoftDelete(target);
+                break;
+            case HARD_DELETE:
+                if (!target.getChildren().isEmpty()) {
+                    throw new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST,
+                            "Cannot hard-delete note with children. Use CASCADE_DELETE (admin-only) to remove all replies."
+                    );
+                }
+                performHardDelete(notes, noteIndex);
+                break;
+            case CASCADE_DELETE:
+                performCascadeDelete(game, notes, noteIndex);
+                break;
         }
 
-        // No llamar game.setNotes(notes) — mismo bug de referencia compartida.
         return gameRepository.save(game);
+    }
+
+    /**
+     * Soft delete: Mark note as deleted with placeholder text, preserve tree structure.
+     * Reactions are NOT deleted (to preserve like counts in database).
+     */
+    private void performSoftDelete(GameNote target) {
+        target.setContent(GameNoteService.DELETED_PLACEHOLDER);
+        target.setDeleted(true);
+    }
+
+    /**
+     * Hard delete: Physically remove note from list. Only allowed if no children.
+     * Reindex remaining notes.
+     */
+    private void performHardDelete(List<GameNote> notes, int noteIndex) {
+        GameNote target = notes.get(noteIndex);
+        GameNote parent = target.getParent();
+        if (parent != null) {
+            parent.getChildren().remove(target);
+        }
+
+        noteReactionService.handleNoteDeleted(notes.get(0).getGame().getId(), noteIndex);
+        notes.remove(noteIndex);
+        reindexParentIndexes(notes);
+    }
+
+    /**
+     * Cascade delete: Remove note and all descendants recursively.
+     * Admin-only operation. Cleans up all reactions for deleted notes.
+     */
+    private void performCascadeDelete(Game game, List<GameNote> notes, int targetIndex) {
+        GameNote target = notes.get(targetIndex);
+        Long gameId = game.getId();
+
+        // Collect all indices to delete: target + all descendants (in reverse order)
+        List<Integer> indicesToDelete = new java.util.ArrayList<>();
+        indicesToDelete.add(targetIndex);
+        
+        // Find and add all descendants
+        for (int i = targetIndex + 1; i < notes.size(); i++) {
+            if (isDescendant(notes, i, targetIndex)) {
+                indicesToDelete.add(i);
+            }
+        }
+
+        // Delete in reverse order to avoid index shifting issues
+        for (int i = indicesToDelete.size() - 1; i >= 0; i--) {
+            int idx = indicesToDelete.get(i);
+            GameNote noteToDelete = notes.get(idx);
+            
+            // Remove from parent's children list
+            GameNote parent = noteToDelete.getParent();
+            if (parent != null) {
+                parent.getChildren().remove(noteToDelete);
+            }
+
+            // Clean up reactions
+            noteReactionService.handleNoteDeleted(gameId, idx);
+        }
+
+        // Remove all notes (in reverse order to preserve indices during removal)
+        for (int i = indicesToDelete.size() - 1; i >= 0; i--) {
+            notes.remove((int) indicesToDelete.get(i));
+        }
+
+        // Reindex remaining notes
+        reindexParentIndexes(notes);
     }
 
     // Helper: ¿es candidateIndex descendiente de ancestorIndex?

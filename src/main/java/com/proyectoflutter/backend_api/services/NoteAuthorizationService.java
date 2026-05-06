@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.proyectoflutter.backend_api.models.DeleteStrategy;
 import com.proyectoflutter.backend_api.models.GameNote;
 import com.proyectoflutter.backend_api.security.services.CurrentUserService;
 
@@ -99,5 +100,45 @@ public class NoteAuthorizationService {
                     "You can delete only your own notes"
             );
         }
+    }
+
+    /**
+     * Verify that the current user can use the specified delete strategy.
+     * 
+     * Permission Model:
+     * - SOFT_DELETE: Author OR Moderator OR Admin
+     * - HARD_DELETE: Author (leaf notes only) OR Moderator OR Admin
+     * - CASCADE_DELETE: Admin only (strict enforcement)
+     * 
+     * @param note The GameNote to delete
+     * @param strategy The deletion strategy to use
+     * @throws ResponseStatusException with HttpStatus.FORBIDDEN if user lacks permission
+     */
+    public void requireDeleteStrategy(GameNote note, DeleteStrategy strategy) {
+        String username = currentUserService.requireUsername();
+        boolean isAdmin = currentUserService.hasRole("ROLE_ADMIN");
+        boolean isModerator = currentUserService.hasRole("ROLE_MODERATOR");
+        boolean isAuthor = note.getAuthorUsername() != null && note.getAuthorUsername().equals(username);
+
+        // CASCADE_DELETE is restricted to admins only
+        if (strategy == DeleteStrategy.CASCADE_DELETE) {
+            if (!isAdmin) {
+                throw new ResponseStatusException(
+                        HttpStatus.FORBIDDEN,
+                        "Only admins can cascade-delete comments with all replies"
+                );
+            }
+            return;
+        }
+
+        // SOFT_DELETE and HARD_DELETE available to authors, moderators, and admins
+        if (isAdmin || isModerator || isAuthor) {
+            return;
+        }
+
+        throw new ResponseStatusException(
+                HttpStatus.FORBIDDEN,
+                "You lack permission to delete this comment with strategy: " + strategy
+        );
     }
 }
